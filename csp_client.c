@@ -54,27 +54,11 @@ void print_help(void) {
 	if (1) {
 		csp_print(" -a <address>     set interface address\n"
 				  " -C <address>     connect to server at address\n"
-				  " -v <version>     set protocol version\n"
 				  " -t               enable test mode\n"
 				  " -T <duration>    enable test mode with running time in seconds\n"
+				  " -s               set up the CAN interface if not already enabled (you must be root)\n"
 				  " -h               print help\n");
 	}
-}
-
-csp_iface_t * add_interface(enum DeviceType device_type, const char * device_name)
-{
-    csp_iface_t * default_iface = NULL;
-
-	if (CSP_HAVE_LIBSOCKETCAN && (device_type == DEVICE_CAN)) {
-		int error = csp_can_socketcan_open_and_add_interface(device_name, CSP_IF_CAN_DEFAULT_NAME, client_address, 1000000, true, &default_iface);
-        if (error != CSP_ERR_NONE) {
-			csp_print("failed to add CAN interface [%s], error: %d\n", device_name, error);
-            exit(1);
-        }
-        default_iface->is_default = 1;
-    }
-
-	return default_iface;
 }
 
 /* main - initialization of CSP and start of client task */
@@ -89,9 +73,11 @@ int main(int argc, char * argv[]) {
 	int ret = EXIT_SUCCESS;
     int opt;
 
+    bool setup_can = false;
     device_type = DEVICE_CAN;
+    csp_conf.version = 1;
 
-	while ((opt = getopt_long(argc, argv, OPTION_c "a:C:v:tT:h", long_options, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, OPTION_c "a:C:tT:sh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'c':
 				device_name = optarg;
@@ -103,15 +89,15 @@ int main(int argc, char * argv[]) {
             case 'C':
                 server_address = atoi(optarg);
                 break;
-			case 'v':
-				csp_conf.version = atoi(optarg);
-				break;
             case 't':
                 test_mode = true;
                 break;
             case 'T':
                 test_mode = true;
                 run_duration_in_sec = atoi(optarg);
+                break;
+            case 's':
+                setup_can = true;
                 break;
             case 'h':
 				print_help();
@@ -139,7 +125,13 @@ int main(int argc, char * argv[]) {
     router_start();
 
     /* Add interface(s) */
-	default_iface = add_interface(device_type, device_name);
+    int bitrate = setup_can ? 1000000 : 0;
+    int error = csp_can_socketcan_open_and_add_interface(device_name, CSP_IF_CAN_DEFAULT_NAME, client_address, bitrate, true, &default_iface);
+    if (error != CSP_ERR_NONE) {
+        csp_print("failed to add CAN interface [%s], error: %d\n", device_name, error);
+        exit(1);
+    }
+    default_iface->is_default = 1;
 
     csp_print("Connection table\r\n");
     csp_conn_print_table();
@@ -147,85 +139,85 @@ int main(int argc, char * argv[]) {
     csp_print("Interfaces\r\n");
     csp_iflist_print();
 
-	if (CSP_USE_RTABLE) {
-		csp_print("Route table\r\n");
-		csp_rtable_print();
-	}
+    if (CSP_USE_RTABLE) {
+        csp_print("Route table\r\n");
+        csp_rtable_print();
+    }
 
     /* Start client work */
-	csp_print("Client started\n");
-	clock_gettime(CLOCK_MONOTONIC, &start_time);
-	count = 'A';
+    csp_print("Client started\n");
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    count = 'A';
 
-	while (1) {
-		struct timespec current_time;
+    while (1) {
+        struct timespec current_time;
 
-		usleep(test_mode ? 200000 : 1000000);
+        usleep(test_mode ? 200000 : 1000000);
 
-		/* Send ping to server, timeout 1000 mS, ping size 100 bytes */
-		int result = csp_ping(server_address, 1000, 100, CSP_O_NONE);
-		csp_print("Ping address: %u, result %d [mS]\n", server_address, result);
+        /* Send ping to server, timeout 1000 mS, ping size 100 bytes */
+        int result = csp_ping(server_address, 1000, 100, CSP_O_NONE);
+        csp_print("Ping address: %u, result %d [mS]\n", server_address, result);
         // Increment successful_ping if ping was successful
         if (result >= 0) {
             ++successful_ping;
         }
 
-		/* Send reboot request to server, the server has no actual implementation of csp_sys_reboot() and fails to reboot */
-		csp_reboot(server_address);
-		csp_print("reboot system request sent to address: %u\n", server_address);
+        /* Send reboot request to server, the server has no actual implementation of csp_sys_reboot() and fails to reboot */
+        //csp_reboot(server_address);
+        //csp_print("reboot system request sent to address: %u\n", server_address);
 
-		/* Send data packet (string) to server */
+        /* Send data packet (string) to server */
 
-		/* 1. Connect to host on 'server_address', port SERVER_PORT with regular UDP-like protocol and 1000 ms timeout */
-		csp_conn_t * conn = csp_connect(CSP_PRIO_NORM, server_address, SERVER_PORT, 1000, CSP_O_NONE);
-		if (conn == NULL) {
-			/* Connect failed */
-			csp_print("Connection failed\n");
-			ret = EXIT_FAILURE;
-			break;
-		}
+        /* 1. Connect to host on 'server_address', port SERVER_PORT with regular UDP-like protocol and 1000 ms timeout */
+        //csp_conn_t * conn = csp_connect(CSP_PRIO_NORM, server_address, SERVER_PORT, 1000, CSP_O_NONE);
+        //if (conn == NULL) {
+        //	/* Connect failed */
+        //	csp_print("Connection failed\n");
+        //	ret = EXIT_FAILURE;
+        //	break;
+        //}
 
-		/* 2. Get packet buffer for message/data */
-		csp_packet_t * packet = csp_buffer_get(0);
-		if (packet == NULL) {
-			/* Could not get buffer element */
-			csp_print("Failed to get CSP buffer\n");
-			ret = EXIT_FAILURE;
-			break;
-		}
+        /* 2. Get packet buffer for message/data */
+        //csp_packet_t * packet = csp_buffer_get(0);
+        //if (packet == NULL) {
+        //	/* Could not get buffer element */
+        //	csp_print("Failed to get CSP buffer\n");
+        //	ret = EXIT_FAILURE;
+        //	break;
+        //}
 
-		/* 3. Copy data to packet */
-		memcpy(packet->data, "Hello world ", 12);
-		memcpy(packet->data + 12, &count, 1);
-		memset(packet->data + 13, 0, 1);
-		count++;
+        /* 3. Copy data to packet */
+        //memcpy(packet->data, "Hello world ", 12);
+        //memcpy(packet->data + 12, &count, 1);
+        //memset(packet->data + 13, 0, 1);
+        //count++;
 
-		/* 4. Set packet length */
-		packet->length = (strlen((char *) packet->data) + 1); /* include the 0 termination */
+        /* 4. Set packet length */
+        //packet->length = (strlen((char *) packet->data) + 1); /* include the 0 termination */
 
-		/* 5. Send packet */
-		csp_send(conn, packet);
+        /* 5. Send packet */
+        //csp_send(conn, packet);
 
-		/* 6. Close connection */
-		csp_close(conn);
+        /* 6. Close connection */
+        //csp_close(conn);
 
-		/* 7. Check for elapsed time if test_mode. */
-		if (test_mode) {
-			clock_gettime(CLOCK_MONOTONIC, &current_time);
+        /* 7. Check for elapsed time if test_mode. */
+        if (test_mode) {
+            clock_gettime(CLOCK_MONOTONIC, &current_time);
 
-			/* We don't really care about the precision of it. */
-			if (current_time.tv_sec - start_time.tv_sec > run_duration_in_sec) {
-				/* Test mode, check that server & client can exchange packets */
-				if (successful_ping < 5) {
-					csp_print("Client successfully pinged the server %u times\n", successful_ping);
-					ret = EXIT_FAILURE;
-					break;
-				}
-				csp_print("Client successfully pinged the server %u times\n", successful_ping);
-				break;
-			}
-		}
-	}
+            /* We don't really care about the precision of it. */
+            if (current_time.tv_sec - start_time.tv_sec > run_duration_in_sec) {
+                /* Test mode, check that server & client can exchange packets */
+                if (successful_ping < 5) {
+                    csp_print("Client successfully pinged the server %u times\n", successful_ping);
+                    ret = EXIT_FAILURE;
+                    break;
+                }
+                csp_print("Client successfully pinged the server %u times\n", successful_ping);
+                break;
+            }
+        }
+    }
 
     /* Wait for execution to end (ctrl+c) */
 
