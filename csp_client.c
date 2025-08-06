@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <time.h>
+#include <stdio.h>
 
 #include <csp/csp.h>
 #include <csp/drivers/usart.h>
@@ -12,10 +13,11 @@
 #include "csp_posix_helper.h"
 
 /* Server port, the port the server listens on for incoming connections from the client. */
-#define SERVER_PORT		10
+#define EPS_ADDRESS             4
+#define EPS_PORT_TELEMETRY      7
 
 /* Commandline options */
-static uint8_t server_address = 0;
+static uint8_t server_address = EPS_ADDRESS;
 static uint8_t client_address = 0;
 
 /* Test mode, check that server & client can exchange packets */
@@ -23,20 +25,22 @@ static bool test_mode = false;
 static unsigned int successful_ping = 0;
 static unsigned int run_duration_in_sec = 3;
 
-enum DeviceType {
-	DEVICE_UNKNOWN,
-	DEVICE_CAN,
-};
+
+
+typedef struct __attribute__((packed)) {
+    uint8_t cmdId;
+    int8_t resultCode;
+    uint8_t state; // Battery state. 0 - critical, 1 - safe, 2 - normal, 3 - full.
+    uint16_t voltage; // Battery voltage in mV.
+    uint16_t chargeCurrent; // Battery charge current in mA.
+    uint16_t dischargeCurrent; // Battery discharge current in mA.
+} telemetry_battery_t;
+
 
 #define __maybe_unused __attribute__((__unused__))
 
 static struct option long_options[] = {
-#if (CSP_HAVE_LIBSOCKETCAN)
-	#define OPTION_c "c:"
     {"can-device", required_argument, 0, 'c'},
-#else
-	#define OPTION_c
-#endif
     {"interface-address", required_argument, 0, 'a'},
     {"connect-to", required_argument, 0, 'C'},
     {"protocol-version", required_argument, 0, 'v'},
@@ -47,41 +51,40 @@ static struct option long_options[] = {
 };
 
 void print_help(void) {
-	csp_print("Usage: csp_client [options]\n");
-	if (CSP_HAVE_LIBSOCKETCAN) {
-		csp_print(" -c <can-device>  set CAN device\n");
-	}
-	if (1) {
-		csp_print(" -a <address>     set interface address\n"
-				  " -C <address>     connect to server at address\n"
-				  " -t               enable test mode\n"
-				  " -T <duration>    enable test mode with running time in seconds\n"
-				  " -s               set up the CAN interface if not already enabled (you must be root)\n"
-				  " -h               print help\n");
-	}
+    csp_print("Usage: csp_client [options]\n");
+    if (CSP_HAVE_LIBSOCKETCAN) {
+        csp_print(" -c <can-device>  set CAN device\n");
+    }
+    if (1) {
+        csp_print(" -a <address>     set interface address\n"
+                " -C <address>     connect to server at address\n"
+                " -t               enable test mode\n"
+                " -T <duration>    enable test mode with running time in seconds\n"
+                " -s               set up the CAN interface if not already enabled (you must be root)\n"
+                " -h               print help\n");
+    }
 }
 
 /* main - initialization of CSP and start of client task */
 int main(int argc, char * argv[]) {
 
-	const char * device_name = NULL;
-	enum DeviceType device_type = DEVICE_UNKNOWN;
-	const char * rtable __maybe_unused = NULL;
-	csp_iface_t * default_iface;
-	struct timespec start_time;
-	unsigned int count;
-	int ret = EXIT_SUCCESS;
+    const char * device_name = "can0";
+    const char * rtable __maybe_unused = NULL;
+    csp_iface_t * default_iface;
+    struct timespec start_time;
+    unsigned int count;
+    int ret = EXIT_SUCCESS;
     int opt;
 
     bool setup_can = false;
-    device_type = DEVICE_CAN;
     csp_conf.version = 1;
+    csp_dbg_packet_print = 1;
+    csp_dbg_rdp_print = 1;
 
-	while ((opt = getopt_long(argc, argv, OPTION_c "a:C:tT:sh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "c:a:C:tT:sh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'c':
-				device_name = optarg;
-				device_type = DEVICE_CAN;
+                device_name = optarg;
                 break;
             case 'a':
                 client_address = atoi(optarg);
@@ -100,20 +103,13 @@ int main(int argc, char * argv[]) {
                 setup_can = true;
                 break;
             case 'h':
-				print_help();
-				exit(EXIT_SUCCESS);
+                print_help();
+                exit(EXIT_SUCCESS);
             case '?':
                 // Invalid option or missing argument
-				print_help();
+                print_help();
                 exit(EXIT_FAILURE);
         }
-    }
-
-	// Unless one of the interfaces are set, print a message and exit
-	if (device_type == DEVICE_UNKNOWN) {
-		csp_print("One and only one of the interfaces can be set.\n");
-        print_help();
-        exit(EXIT_FAILURE);
     }
 
     csp_print("Initialising CSP\n");
@@ -161,6 +157,63 @@ int main(int argc, char * argv[]) {
         if (result >= 0) {
             ++successful_ping;
         }
+
+        /* 1. Connect to host on 'server_address', port SERVER_PORT with regular UDP-like protocol and 1000 ms timeout */
+        csp_conn_t * conn = csp_connect(CSP_PRIO_NORM, server_address, EPS_PORT_TELEMETRY, 1000, CSP_O_NONE);
+        if (conn == NULL) {
+            /* Connect failed */
+            csp_print("Connection failed\n");
+            ret = EXIT_FAILURE;
+            break;
+        }
+
+        /* 2. Get packet buffer for message/data */
+        csp_packet_t * packet = csp_buffer_get(0);
+        if (packet == NULL) {
+            /* Could not get buffer element */
+            csp_print("Failed to get CSP buffer\n");
+            ret = EXIT_FAILURE;
+            break;
+        }
+
+        /* 3. Copy data to packet */
+        uint8_t b = 128;
+        memcpy(packet->data, &b, 1);
+        count++;
+
+        /* 4. Set packet length */
+        packet->length = 1;
+
+        /* 5. Send packet */
+        csp_send(conn, packet);
+
+        csp_packet_t *res = csp_read(conn, 1000);
+        if (res != NULL) {
+            printf("length %d\n", res->length);
+            if (res->length == 9) {
+                telemetry_battery_t x;
+                memcpy(&x, res->data, 9);
+                printf("cmd %d\n", x.cmdId);
+                printf("result %d\n", x.resultCode);
+                printf("state %d\n", x.state);
+                printf("voltage %d\n", x.voltage);
+                printf("charge %d\n", x.chargeCurrent);
+                printf("discharge %d\n", x.dischargeCurrent);
+            }
+        } else {
+            csp_print("Failed to get response\n");
+            //ret = EXIT_FAILURE;
+            //break;
+        }
+        // sent packets are freed for you, but you need to free received packets when you're done with them
+        csp_buffer_free(res);
+
+
+        /* 6. Close connection */
+        csp_close(conn);
+        printf("Client successfully pinged the server %u times\n", successful_ping);
+        printf("%d %d %d %d %d %d %d\n", csp_dbg_buffer_out, csp_dbg_conn_out, csp_dbg_conn_ovf, csp_dbg_conn_noroute, csp_dbg_inval_reply, csp_dbg_errno, csp_dbg_can_errno);
+        printf("%d\n", csp_buffer_remaining());
 
         /* Send reboot request to server, the server has no actual implementation of csp_sys_reboot() and fails to reboot */
         //csp_reboot(server_address);
