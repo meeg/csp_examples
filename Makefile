@@ -9,7 +9,7 @@ CFLAGS += -Wall -Wpedantic
 OBJECTS = csp_posix_helper.o
 HEADERS = csp_posix_helper.h
 
-ALL : csp_client.exe
+ALL : csp_client.exe remotecli.exe
 	@echo "Listo!"
 
 .SECONDARY: $(OBJECTS)
