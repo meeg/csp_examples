@@ -7,10 +7,10 @@
 #include <stdio.h>
 
 #include <csp/csp.h>
-#include <csp/drivers/usart.h>
 #include <csp/drivers/can_socketcan.h>
 
 #include "csp_posix_helper.h"
+#include "flatsat_lib.h"
 
 /* Server port, the port the server listens on for incoming connections from the client. */
 #define EPS_ADDRESS             4
@@ -24,18 +24,6 @@ static uint8_t client_address = 0;
 static bool test_mode = false;
 static unsigned int successful_ping = 0;
 static unsigned int run_duration_in_sec = 3;
-
-
-
-typedef struct __attribute__((packed)) {
-    uint8_t cmdId;
-    int8_t resultCode;
-    uint8_t state; // Battery state. 0 - critical, 1 - safe, 2 - normal, 3 - full.
-    uint16_t voltage; // Battery voltage in mV.
-    uint16_t chargeCurrent; // Battery charge current in mA.
-    uint16_t dischargeCurrent; // Battery discharge current in mA.
-} telemetry_battery_t;
-
 
 #define __maybe_unused __attribute__((__unused__))
 
@@ -52,17 +40,13 @@ static struct option long_options[] = {
 
 void print_help(void) {
     csp_print("Usage: csp_client [options]\n");
-    if (CSP_HAVE_LIBSOCKETCAN) {
-        csp_print(" -c <can-device>  set CAN device\n");
-    }
-    if (1) {
-        csp_print(" -a <address>     set interface address\n"
+    csp_print(" -c <can-device>  set CAN device\n"
+                " -a <address>     set interface address\n"
                 " -C <address>     connect to server at address\n"
                 " -t               enable test mode\n"
                 " -T <duration>    enable test mode with running time in seconds\n"
                 " -s               set up the CAN interface if not already enabled (you must be root)\n"
                 " -h               print help\n");
-    }
 }
 
 /* main - initialization of CSP and start of client task */
@@ -145,7 +129,24 @@ int main(int argc, char * argv[]) {
     clock_gettime(CLOCK_MONOTONIC, &start_time);
     count = 'A';
 
+    /*
+    csp_reboot(server_address);
+    csp_print("reboot system request sent to address: %u\n", server_address);
+
     while (1) {
+        int result = csp_ping(server_address, 1000, 100, CSP_O_NONE);
+        csp_print("Ping address: %u, result %d [mS]\n", server_address, result);
+        if (result >= 0) break;
+    }
+    */
+
+    /* 1. Connect to host on 'server_address', port SERVER_PORT with regular UDP-like protocol and 1000 ms timeout */
+    csp_conn_t * conn = csp_connect(CSP_PRIO_NORM, server_address, EPS_PORT_TELEMETRY, 1000, CSP_O_NONE);
+    if (conn == NULL) {
+        /* Connect failed */
+        csp_print("Connection failed\n");
+        ret = EXIT_FAILURE;
+    } else while (1) {
         struct timespec current_time;
 
         usleep(test_mode ? 200000 : 1000000);
@@ -158,14 +159,6 @@ int main(int argc, char * argv[]) {
             ++successful_ping;
         }
 
-        /* 1. Connect to host on 'server_address', port SERVER_PORT with regular UDP-like protocol and 1000 ms timeout */
-        csp_conn_t * conn = csp_connect(CSP_PRIO_NORM, server_address, EPS_PORT_TELEMETRY, 1000, CSP_O_NONE);
-        if (conn == NULL) {
-            /* Connect failed */
-            csp_print("Connection failed\n");
-            ret = EXIT_FAILURE;
-            break;
-        }
 
         /* 2. Get packet buffer for message/data */
         csp_packet_t * packet = csp_buffer_get(0);
@@ -208,51 +201,10 @@ int main(int argc, char * argv[]) {
         // sent packets are freed for you, but you need to free received packets when you're done with them
         csp_buffer_free(res);
 
-
-        /* 6. Close connection */
-        csp_close(conn);
         printf("Client successfully pinged the server %u times\n", successful_ping);
         printf("%d %d %d %d %d %d %d\n", csp_dbg_buffer_out, csp_dbg_conn_out, csp_dbg_conn_ovf, csp_dbg_conn_noroute, csp_dbg_inval_reply, csp_dbg_errno, csp_dbg_can_errno);
         printf("%d\n", csp_buffer_remaining());
 
-        /* Send reboot request to server, the server has no actual implementation of csp_sys_reboot() and fails to reboot */
-        //csp_reboot(server_address);
-        //csp_print("reboot system request sent to address: %u\n", server_address);
-
-        /* Send data packet (string) to server */
-
-        /* 1. Connect to host on 'server_address', port SERVER_PORT with regular UDP-like protocol and 1000 ms timeout */
-        //csp_conn_t * conn = csp_connect(CSP_PRIO_NORM, server_address, SERVER_PORT, 1000, CSP_O_NONE);
-        //if (conn == NULL) {
-        //	/* Connect failed */
-        //	csp_print("Connection failed\n");
-        //	ret = EXIT_FAILURE;
-        //	break;
-        //}
-
-        /* 2. Get packet buffer for message/data */
-        //csp_packet_t * packet = csp_buffer_get(0);
-        //if (packet == NULL) {
-        //	/* Could not get buffer element */
-        //	csp_print("Failed to get CSP buffer\n");
-        //	ret = EXIT_FAILURE;
-        //	break;
-        //}
-
-        /* 3. Copy data to packet */
-        //memcpy(packet->data, "Hello world ", 12);
-        //memcpy(packet->data + 12, &count, 1);
-        //memset(packet->data + 13, 0, 1);
-        //count++;
-
-        /* 4. Set packet length */
-        //packet->length = (strlen((char *) packet->data) + 1); /* include the 0 termination */
-
-        /* 5. Send packet */
-        //csp_send(conn, packet);
-
-        /* 6. Close connection */
-        //csp_close(conn);
 
         /* 7. Check for elapsed time if test_mode. */
         if (test_mode) {
@@ -272,6 +224,8 @@ int main(int argc, char * argv[]) {
         }
     }
 
+    /* 6. Close connection */
+    csp_close(conn);
     /* Wait for execution to end (ctrl+c) */
 
     return ret;
