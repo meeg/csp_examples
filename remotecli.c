@@ -82,7 +82,7 @@ int main(int argc, char * argv[]) {
     }
 
     char * cmd = argv[argc-1];
-    if (debug) csp_print("command: %s\n", cmd);
+    csp_print("command: %s\n", cmd);
 
     if (debug) csp_print("Initialising CSP\n");
 
