@@ -4,7 +4,7 @@
 
 #include "flatsat_lib.h"
 
-int remotecli(int server_address, const char * cmd, char * response, int maxlen) {
+int remotecli(int server_address, int server_port, const char * cmd, char * response, int maxlen, int timeout) {
     csp_packet_t * req_pkt = csp_buffer_get(0);
     if (req_pkt == NULL) {
         /* Could not get buffer element */
@@ -28,14 +28,14 @@ int remotecli(int server_address, const char * cmd, char * response, int maxlen)
     req_pkt->length = len+5; // 3 bytes of header, 2 bytes for the \r\n
 
     // send the request
-    csp_conn_t * conn = csp_connect(CSP_PRIO_NORM, server_address, REMOTECLI_PORT, 1000, CSP_O_NONE);
+    csp_conn_t * conn = csp_connect(CSP_PRIO_NORM, server_address, server_port, 1000, CSP_O_NONE);
     csp_send(conn, req_pkt);
 
     int reslen = 0;
 
     int i_res = 0;
     while (1) {
-        csp_packet_t *res_pkt = csp_read(conn, 1000);
+        csp_packet_t *res_pkt = csp_read(conn, timeout);
         if (res_pkt == NULL) {
             csp_print("Failed to get response\n");
             return(EXIT_FAILURE);

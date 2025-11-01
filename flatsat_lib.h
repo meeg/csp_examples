@@ -28,4 +28,4 @@ typedef struct __attribute__((packed)) {
     char outputData[128];
 } remotecli_res_t;
 
-int remotecli(int server_address, const char * cmd, char * response, int maxlen);
+int remotecli(int server_address, int server_port, const char * cmd, char * response, int maxlen, int timeout);

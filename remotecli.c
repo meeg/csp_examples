@@ -17,9 +17,11 @@
 void print_help(void) {
     csp_print("Usage: remotecli [options] command\n");
     csp_print("The command must be a single string (quoted if necessary)\n");
-    csp_print(" -c <can-device>  set CAN device\n"
-                " -a <address>     set interface address\n"
-                " -C <address>     connect to server at address\n"
+    csp_print(" -c <can-device>  set CAN device (default can0)\n"
+                " -a <int>         set interface address (default 0)\n"
+                " -C <int>         connect to server at address (default 4, for EPS)\n"
+                " -p <int>         connect to server at port (default 13, for remote CLI)\n"
+                " -t <int>         set CSP response timeout in ms (default infinity)\n"
                 " -s               set up the CAN interface if not already enabled (you must be root)\n"
                 " -v               verbose (enable debug printouts)\n"
                 " -h               print help\n");
@@ -38,10 +40,12 @@ int main(int argc, char * argv[]) {
 
     uint8_t server_address = EPS_ADDRESS;
     uint8_t client_address = 0;
+    uint8_t server_port = REMOTECLI_PORT;
+    int timeout = CSP_MAX_TIMEOUT;
 
     bool debug = false;
 
-    while ((opt = getopt(argc, argv, "c:a:C:svh")) != -1) {
+    while ((opt = getopt(argc, argv, "c:a:C:p:t:svh")) != -1) {
         switch (opt) {
             case 'c':
                 device_name = optarg;
@@ -51,6 +55,12 @@ int main(int argc, char * argv[]) {
                 break;
             case 'C':
                 server_address = atoi(optarg);
+                break;
+            case 'p':
+                server_port = atoi(optarg);
+                break;
+            case 't':
+                timeout = atoi(optarg);
                 break;
             case 's':
                 setup_can = true;
@@ -114,7 +124,7 @@ int main(int argc, char * argv[]) {
 
     int maxlen = 10000;
     char response[maxlen];
-    remotecli(server_address, cmd, response, maxlen);
+    remotecli(server_address, server_port, cmd, response, maxlen, timeout);
     csp_print("%s\n",response);
 
     return ret;
