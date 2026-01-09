@@ -18,7 +18,9 @@ sleep 60
 remotecli.exe -C 5 -p 14 "ifconfig eth0 192.168.133.101"
 echo "setting up and starting daemon"
 #./serialcli.py "/data/fram/startup.sh"
+set +u
 remotecli.exe -C 5 -p 14 "/data/fram/startup.sh $1"
+set -u
 echo "waiting 30 sec for LTA boot"
 sleep 30
 echo "ready"
