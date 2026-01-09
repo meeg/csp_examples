@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+EXPOSURE="${EXPOSURE:-10}"
+NSAMP="${NSAMP:-1}"
+TOTNCOL="${TOTNCOL:-1200}"
+TOTNROW="${TOTNROW:-1350}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -53,6 +57,8 @@ source "$INITSCRIPT"
 apply_params() {
   lta NSAMP "$NSAMP"
   lta EXPOSURE "$EXPOSURE"
+  lta NCOL "$TOTNCOL"
+  lta NROW "$TOTNROW"
 }
 
 # Run
