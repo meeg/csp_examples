@@ -1,4 +1,6 @@
 #!/bin/bash
+# when called with optional argument, e.g. "./startup.sh 17", the daemon will connect to an LTA at 192.168.133.17
+
 echo "PC2 on"
 remotecli.exe -C 4 "output 6 1 0"
 echo "LTA power supply on"
@@ -10,7 +12,7 @@ remotecli.exe -C 5 -p 14 "ifconfig eth0 192.168.133.101"
 #echo "waiting 5 sec for LTA to get online"
 #sleep 5
 echo "setting up and starting daemon"
-remotecli.exe -C 5 -p 14 "/data/fram/startup.sh"
+remotecli.exe -C 5 -p 14 "/data/fram/startup.sh $1"
 #./serialcli.py "/data/fram/startup.sh"
 echo "waiting 30 sec for LTA boot"
 sleep 30
