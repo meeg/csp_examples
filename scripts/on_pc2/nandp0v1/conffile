@@ -1,0 +1,3 @@
+DAEMONDIR=/data/nandp0v1
+DAEMON=configure.static
+DAEMONARGS='-b 192.168.133.20'
